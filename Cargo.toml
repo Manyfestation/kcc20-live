@@ -1,0 +1,17 @@
+[package]
+name = "kcc20-live-session"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "ISC"
+publish = false
+
+[dependencies]
+# Argent compiler + runtime, pinned to upstream master. Bump both revs together.
+argent = { git = "https://github.com/argent-lang/argent", rev = "a98debf14246294aa3936873d9da82484fa9e764" }
+argent-runtime = { git = "https://github.com/argent-lang/argent", rev = "a98debf14246294aa3936873d9da82484fa9e764" }
+
+# Same rusty-kaspa revision Argent pins, so consensus types line up exactly.
+kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "a41a333b08848f41bf737b72592e463a6011b8ac" }
+
+secp256k1 = { version = "0.29", features = ["global-context", "rand-std"] }

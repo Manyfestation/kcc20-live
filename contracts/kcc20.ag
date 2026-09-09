@@ -1,0 +1,221 @@
+// ============================================================================
+// Protocol constants: owner schemes, spending paths, borrowing schemes, and limits
+// ============================================================================
+
+const byte OWNER_P2PK_SCHNORR = 0x00;
+const byte OWNER_P2PKH_SCHNORR = 0x01;
+const byte OWNER_P2PKH_ECDSA = 0x02;
+const byte OWNER_P2SH = 0x03;
+const byte OWNER_COVENANT_ID = 0x04;
+
+const byte PATH_NORMAL = 0x00;
+const byte PATH_BORROW = 0x01;
+
+const byte BORROW_DISABLED = 0x00;
+const byte BORROW_AMOUNT_THRESHOLD = 0x01;
+const byte BORROW_SCHNORR_SIGNATURE = 0x02;
+const byte BORROW_HASH_CHAIN = 0x03;
+const int MAX_DELEGATES = 2;
+const int MAX_OUTPUTS = 2;
+
+
+fn require_valid_owner_scheme(byte owner_scheme) {
+    require(
+        owner_scheme == OWNER_P2PK_SCHNORR
+            || owner_scheme == OWNER_P2PKH_SCHNORR
+            || owner_scheme == OWNER_P2PKH_ECDSA
+            || owner_scheme == OWNER_P2SH
+            || owner_scheme == OWNER_COVENANT_ID
+    );
+}
+
+fn require_valid_borrow_scheme(byte borrow_scheme) {
+    require(
+        borrow_scheme == BORROW_DISABLED
+            || borrow_scheme == BORROW_AMOUNT_THRESHOLD
+            || borrow_scheme == BORROW_SCHNORR_SIGNATURE
+            || borrow_scheme == BORROW_HASH_CHAIN
+    );
+}
+
+fn owner_authorized(
+    byte[32] owner,
+    byte owner_scheme,
+    byte[] witness
+) -> bool {
+    if (owner_scheme == OWNER_P2PK_SCHNORR) {
+        require(witness.length == 65);
+        require(checkSig(
+            sig(byte[65](witness)),
+            pubkey(owner)
+        ));
+    } else if (owner_scheme == OWNER_P2PKH_SCHNORR) {
+        require(witness.length == 97);
+
+        pubkey owner_public_key = pubkey(byte[32](witness.slice(0, 32)));
+        sig owner_signature = sig(byte[65](witness.slice(32, 97)));
+        byte[32] public_key_hash = blake3WithKey(
+            byte[](owner_public_key),
+            byte[32](
+                byte[]("PublicKeyHash")
+                    + byte[19](0x00000000000000000000000000000000000000)
+            )
+        );
+
+        require(public_key_hash == owner);
+        require(checkSig(owner_signature, owner_public_key));
+    } else if (owner_scheme == OWNER_P2PKH_ECDSA) {
+        require(witness.length == 98);
+
+        byte[33] owner_public_key = byte[33](witness.slice(0, 33));
+        sig owner_signature = sig(byte[65](witness.slice(33, 98)));
+        byte[32] public_key_hash = blake3WithKey(
+            byte[](owner_public_key),
+            byte[32](
+                byte[]("PublicKeyHash")
+                    + byte[19](0x00000000000000000000000000000000000000)
+            )
+        );
+
+        require(public_key_hash == owner);
+        require(checkSigEcdsa(owner_signature, owner_public_key));
+    } else if (owner_scheme == OWNER_P2SH) {
+        require(witness.length == 1);
+        int authority_input_index = unsigned(witness[0]);
+        require(
+            tx.inputs[authority_input_index].scriptPubKey
+                == byte[](new ScriptPubKeyP2SH(owner))
+        );
+    } else if (owner_scheme == OWNER_COVENANT_ID) {
+        require(witness.length == 0);
+        require(OpCovInputCount(owner) > 0);
+    } else {
+        require(false);
+    }
+
+    return true;
+}
+
+
+state KCC0State {
+    int amount;
+    byte[32] owner;
+    byte owner_scheme;
+    byte[32] borrow_guard;
+    byte borrow_scheme;
+    byte[32] extension_commitment;
+}
+
+actor KCC20 owns KCC0State {
+    entry transfer(
+        KCC0State[] next_states,
+        byte[] witness
+    ) consumes {
+        delegates: KCC20[0..=MAX_DELEGATES]
+    } emits {
+        next_tokens: KCC20[1..=MAX_OUTPUTS]
+    } {
+        // Validate entry arg
+        require(next_states.length == next_tokens.length);
+        require(witness.length >= 0);
+
+        //// validate amount preservation
+        // accumulating input amount
+        int total_input_amount = amount;
+        for (i, 0, delegates.length, MAX_DELEGATES) {
+            unrestricted(next_tokens[i].value);
+            require(delegates[i].amount >= 0);
+            require(delegates[i].extension_commitment == extension_commitment);
+            total_input_amount = total_input_amount + delegates[i].amount;
+        }
+        // accumulating output amount
+        int total_output_amount = 0;
+        for (i, 0, next_states.length ,MAX_OUTPUTS) {
+            require(next_states[i].amount >= 0);
+            require_valid_owner_scheme(next_states[i].owner_scheme);
+            require_valid_borrow_scheme(next_states[i].borrow_scheme);
+            require(next_states[i].extension_commitment == extension_commitment);
+            total_output_amount = total_output_amount + next_states[i].amount;
+        }
+
+        require(total_output_amount == total_input_amount);
+
+        // validate leader authentication
+        byte path = witness[0];
+        byte[] witness_rest = witness.slice(1, witness.length);
+
+        if (path == PATH_NORMAL) {
+            owner_authorized(owner, owner_scheme, witness_rest);
+        } else if (PATH_BORROW) {
+            int amount_threshold = 0;
+            byte[32] next_borrow_guard = borrow_guard;
+
+            if (borrow_scheme == BORROW_DISABLED) {
+                require(false);
+            } else if (borrow_scheme == BORROW_AMOUNT_THRESHOLD) {
+                require(path_witness.length == 0);
+                amount_threshold = OpBin2Num(borrow_guard.slice(0, 8));
+                require(amount_threshold >= 0);
+            } else if (borrow_scheme == BORROW_SCHNORR_SIGNATURE) {
+                require(path_witness.length == 65);
+                require(checkSig(
+                    sig(byte[65](path_witness)),
+                    pubkey(borrow_guard)
+                ));
+            } else if (borrow_scheme == BORROW_HASH_CHAIN) {
+                require(path_witness.length == 129);
+
+                next_borrow_guard = byte[32](path_witness.slice(0, 32)); // parse next guard
+                pubkey one_time_public_key = pubkey(byte[32]( // parse curr pubkey
+                    path_witness.slice(32, 64)
+                ));
+                sig borrow_signature = sig(byte[65]( // parse curr sig
+                path_witness.slice(64, 129)
+                ));
+
+                require( // verify curr gaurd is Hash(next_guard || curr_key)
+                    blake3(byte[](
+                        next_borrow_guard + byte[](one_time_public_key)
+                    )) == borrow_guard
+                );
+                require(checkSig( // verify sig over curr key
+                    borrow_signature,
+                    one_time_public_key
+                ));
+            } else {
+                require(false);
+            }
+
+            // --- Borrow return state: preserve ownership and policy, update the guard ---
+            require(next_states[0].owner == owner);
+            require(next_states[0].owner_scheme == owner_scheme);
+            require(next_states[0].borrow_scheme == borrow_scheme);
+            require(next_states[0].borrow_guard == next_borrow_guard);
+            require(
+                next_states[0].extension_commitment
+                    == extension_commitment
+            );
+
+            // --- Borrow repayment: increase tokens and preserve native output value ---
+            int amount_difference = next_states[0].amount - amount;
+            require(amount_difference > amount_threshold);
+            require(next[0].value >= self.value);
+        } else {
+            require(false);
+        }
+
+        become next_tokens <- KCC20[](next_states);
+    }
+
+    delegate transfer_delegator(
+        byte[] witness 
+    ) consumes {
+        leader: KCC20
+    } {
+        require(owner_authorized(owner, owner_scheme, witness));
+    }
+}
+
+app KCC20Reference {
+    actor KCC20;
+}

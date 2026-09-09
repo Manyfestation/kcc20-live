@@ -1,0 +1,4 @@
+/target/
+/build/
+/.wallet/
+.DS_Store
