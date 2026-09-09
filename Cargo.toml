@@ -8,10 +8,17 @@ publish = false
 
 [dependencies]
 # Argent compiler + runtime, pinned to upstream master. Bump both revs together.
-argent = { git = "https://github.com/argent-lang/argent", rev = "a98debf14246294aa3936873d9da82484fa9e764" }
-argent-runtime = { git = "https://github.com/argent-lang/argent", rev = "a98debf14246294aa3936873d9da82484fa9e764" }
+argent = { git = "https://github.com/argent-lang/argent", rev = "94f249a75dd25a192ae2625d95f7a6f96974abcf" }
+argent-runtime = { git = "https://github.com/argent-lang/argent", rev = "94f249a75dd25a192ae2625d95f7a6f96974abcf" }
 
 # Same rusty-kaspa revision Argent pins, so consensus types line up exactly.
 kaspa-consensus-core = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "a41a333b08848f41bf737b72592e463a6011b8ac" }
+kaspa-txscript = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "a41a333b08848f41bf737b72592e463a6011b8ac" }
+kaspa-addresses = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "a41a333b08848f41bf737b72592e463a6011b8ac" }
+kaspa-rpc-core = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "a41a333b08848f41bf737b72592e463a6011b8ac" }
+kaspa-wrpc-client = { git = "https://github.com/kaspanet/rusty-kaspa", rev = "a41a333b08848f41bf737b72592e463a6011b8ac" }
 
 secp256k1 = { version = "0.29", features = ["global-context", "rand-std"] }
+rand = "0.8"
+faster-hex = "0.10"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

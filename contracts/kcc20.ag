@@ -117,13 +117,12 @@ actor KCC20 owns KCC0State {
     } {
         // Validate entry arg
         require(next_states.length == next_tokens.length);
-        require(witness.length >= 0);
+        require(witness.length > 0);
 
         //// validate amount preservation
         // accumulating input amount
         int total_input_amount = amount;
         for (i, 0, delegates.length, MAX_DELEGATES) {
-            unrestricted(next_tokens[i].value);
             require(delegates[i].amount >= 0);
             require(delegates[i].extension_commitment == extension_commitment);
             total_input_amount = total_input_amount + delegates[i].amount;
@@ -146,34 +145,34 @@ actor KCC20 owns KCC0State {
 
         if (path == PATH_NORMAL) {
             owner_authorized(owner, owner_scheme, witness_rest);
-        } else if (PATH_BORROW) {
+        } else if (path == PATH_BORROW) {
             int amount_threshold = 0;
             byte[32] next_borrow_guard = borrow_guard;
 
             if (borrow_scheme == BORROW_DISABLED) {
                 require(false);
             } else if (borrow_scheme == BORROW_AMOUNT_THRESHOLD) {
-                require(path_witness.length == 0);
+                require(witness_rest.length == 0);
                 amount_threshold = OpBin2Num(borrow_guard.slice(0, 8));
                 require(amount_threshold >= 0);
             } else if (borrow_scheme == BORROW_SCHNORR_SIGNATURE) {
-                require(path_witness.length == 65);
+                require(witness_rest.length == 65);
                 require(checkSig(
-                    sig(byte[65](path_witness)),
+                    sig(byte[65](witness_rest)),
                     pubkey(borrow_guard)
                 ));
             } else if (borrow_scheme == BORROW_HASH_CHAIN) {
-                require(path_witness.length == 129);
+                require(witness_rest.length == 129);
 
-                next_borrow_guard = byte[32](path_witness.slice(0, 32)); // parse next guard
+                next_borrow_guard = byte[32](witness_rest.slice(0, 32)); // parse next guard
                 pubkey one_time_public_key = pubkey(byte[32]( // parse curr pubkey
-                    path_witness.slice(32, 64)
+                    witness_rest.slice(32, 64)
                 ));
                 sig borrow_signature = sig(byte[65]( // parse curr sig
-                path_witness.slice(64, 129)
+                witness_rest.slice(64, 129)
                 ));
 
-                require( // verify curr gaurd is Hash(next_guard || curr_key)
+                require( // verify curr gourd is Hash(next_guard || curr_key)
                     blake3(byte[](
                         next_borrow_guard + byte[](one_time_public_key)
                     )) == borrow_guard
@@ -186,7 +185,7 @@ actor KCC20 owns KCC0State {
                 require(false);
             }
 
-            // --- Borrow return state: preserve ownership and policy, update the guard ---
+            // preserve ownership and policy, update the guard
             require(next_states[0].owner == owner);
             require(next_states[0].owner_scheme == owner_scheme);
             require(next_states[0].borrow_scheme == borrow_scheme);
@@ -196,10 +195,10 @@ actor KCC20 owns KCC0State {
                     == extension_commitment
             );
 
-            // --- Borrow repayment: increase tokens and preserve native output value ---
+            // increase tokens and preserve native output value
             int amount_difference = next_states[0].amount - amount;
             require(amount_difference > amount_threshold);
-            require(next[0].value >= self.value);
+            require(next_tokens[0].value >= self.value);
         } else {
             require(false);
         }
